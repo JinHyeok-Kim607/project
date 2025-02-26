@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kakao Map Pothole Markers</title>
+  <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=a53be837bc6a47b7d260cf498d638153&libraries=services"></script>
+  <style>
+    #map {
+        width: 100vw; 
+        height: 95vh; 
+        position: relative;
+        background-image: url(bacground.jpg);
+        background-size: cover;
+        background-position: center;
+    }
+    .container {
+        position: absolute;
+        top: 10%; 
+        left: 50%; 
+        transform: translate(-50%, -50%);
+        text-align: center;
+        width: 45vw;
+        z-index: 10;
+    }
+    .logo-button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        outline: none;
+    }
+    
+    #update-button {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        padding: 10px 20px;
+        font-size: 16px;
+        z-index: 10;
+    }
+    .search-bar {
+        position: absolute;
+        top: 30px;
+        right: 30px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        z-index: 10;
+    }
+    .search-bar input[type="text"] {
+        padding: 8px;
+        border: 1px solid #ccc;
+        width: 350px;
+        height: 25px;
+        border-radius: 25px;
+    }
+    #modal {
+      display: none;
+      position: fixed;
+      z-index: 1;
+      padding-top: 60px;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgba(0,0,0,0.8);
+      text-align: center;
+    }
+    #image-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+    #image-container img {
+      
+      max-width: 450px;
+      max-height: 450px;
+      margin: 10px;
+      margin-top: 100px;
+    }
+    #close {
+      position: absolute;
+      top: 60px;
+      right: 35px;
+      color: #f1f1f1;
+      font-size: 40px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    #close:hover, #close:focus {
+      color: #bbb;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- 업데이트 버튼 고정 위치 -->
+  <button id="update-button" onclick="updatePothole()">Pothole Update</button>
+
+  <div id="map"></div>
+
+  <div id="modal">
+    <span id="close">&times;</span>
+    <div id="image-container"></div>
+  </div>
+
+  <script>
+    var map;
+    var modal = document.getElementById("modal");
+    var imageContainer = document.getElementById("image-container");
+    var closeBtn = document.getElementById("close");
+
+    // 모달 창 닫기
+    closeBtn.onclick = function() {
+      modal.style.display = "none";
+      imageContainer.innerHTML = "";  // 이전 이미지 제거
+    };
+
+    // 마커 업데이트 함수
+    function updatePothole() {
+      fetch('http://127.0.0.1:5001/get_real_files')
+        .then(response => response.json())
+        .then(data => {
+          var markers = {};
+
+          data.forEach(coord => {
+            var latitude = parseFloat(coord.latitude);
+            var longitude = parseFloat(coord.longitude);
+            var coordKey = `${latitude},${longitude}`;
+
+            if (!isNaN(latitude) && !isNaN(longitude)) {
+              if (!markers[coordKey]) {
+                markers[coordKey] = {
+                  position: new kakao.maps.LatLng(latitude, longitude),
+                  files: []
+                };
+              }
+              markers[coordKey].files.push(coord.filename);
+            } else {
+              console.error("Invalid coordinates:", coord);
+            }
+          });
+
+          // 각 고유 좌표에 대해 마커 생성
+          Object.values(markers).forEach(markerData => {
+            var marker = new kakao.maps.Marker({
+              position: markerData.position
+            });
+
+            // 마커 클릭 이벤트
+            kakao.maps.event.addListener(marker, 'click', function() {
+              imageContainer.innerHTML = ""; // 이전 이미지 초기화
+              
+              // 동일 좌표에 있는 모든 이미지를 모달에 추가
+              markerData.files.forEach(filename => {
+                var img = document.createElement("img");
+                img.src = "http://127.0.0.1:5001/real_images/" + filename;
+                imageContainer.appendChild(img);
+              });
+
+              modal.style.display = "block";
+            });
+
+            marker.setMap(map);
+          });
+        })
+        .catch(error => {
+          console.error('Error:', error);
+          alert('Failed to update pothole markers.');
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+      var mapContainer = document.getElementById('map'),
+          mapOption = {
+            center: new kakao.maps.LatLng(37.266093058, 126.999850621),
+            level: 3
+          };
+
+      map = new kakao.maps.Map(mapContainer, mapOption);
+
+      var ps = new kakao.maps.services.Places();
+
+      // 검색 기능
+      function searchLocation() {
+        let query = document.getElementById('search-input').value;
+        if (query) {
+          ps.keywordSearch(query, placesSearchCB);
+        } else {
+          alert("검색어를 입력하세요.");
+        }
+      }
+
+      function placesSearchCB(data, status, pagination) {
+        if (status === kakao.maps.services.Status.OK) {
+          let bounds = new kakao.maps.LatLngBounds();
+          data.forEach(place => {
+            bounds.extend(new kakao.maps.LatLng(place.y, place.x));
+          });
+          map.setBounds(bounds);
+        } else {
+          alert("검색 결과가 없습니다.");
+        }
+      }
+
+      document.getElementById('search-input').addEventListener('keypress', function(event) {
+        if (event.key === 'Enter') {
+          searchLocation();
+        }
+      });
+
+      window.updatePothole = updatePothole;
+    });
+  </script>
+  
+  <div class="container">
+    
+    <button class="logo-button" onclick="updatePothole()">
+      <img alt="Logo" src="sutholeLogoNoback.png" width="50%">
+    </button>
+  </div>
+  
+  <div class="search-bar">
+    <input type="text" id="search-input" placeholder="검색어를 입력하세요">
+  </div>
+</body>
+</html>
